@@ -13,8 +13,6 @@ const STATUS_TEXT = {
   reconnecting: "Reconnecting...",
 };
 
-const HISTORY_REFRESH_INTERVAL = 3000;
-
 export default function ChatRoom() {
   const dispatch = useDispatch();
   const { username, token, status, users, activeConversation, historyErrorFor, historyErrorMessage } = useSelector((state) => state.chat);
@@ -43,10 +41,8 @@ export default function ChatRoom() {
     }
 
     loadHistory();
-    const interval = window.setInterval(loadHistory, HISTORY_REFRESH_INTERVAL);
     return () => {
       active = false;
-      window.clearInterval(interval);
     };
   }, [activeConversation, dispatch, historyRetry, token]);
 
