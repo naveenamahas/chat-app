@@ -29,7 +29,7 @@ jobs:
     # The job waits here until a reviewer clicks "Approve and deploy".
     environment:
       name: production
-      url: ${{ vars.FRONTEND_URL }}
+      url: ${{ vars.BACKEND_URL }}
 
     steps:
       - name: Show what is being deployed
@@ -37,14 +37,11 @@ jobs:
           echo "Commit: ${{ github.event.workflow_run.head_sha }}"
           echo "Message: ${{ github.event.workflow_run.head_commit.message }}"
 
-      - name: Trigger backend deploy on Render
+      # One Render service hosts both the Go backend and the UI,
+      # so a single deploy hook deploys everything.
+      - name: Trigger deploy on Render
         env:
           HOOK: ${{ secrets.RENDER_BACKEND_HOOK }}
-        run: curl --fail --silent --show-error -X POST "$HOOK"
-
-      - name: Trigger frontend deploy on Render
-        env:
-          HOOK: ${{ secrets.RENDER_FRONTEND_HOOK }}
         run: curl --fail --silent --show-error -X POST "$HOOK"
 
       - name: Wait for backend /health to respond
