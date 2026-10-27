@@ -1,20 +1,20 @@
 # CD: deploy to Render after CI passes on main AND a person approves.
 name: Deploy
-
+ 
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
-
+ 
 # Never run two deploys at the same time.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
-
+ 
 permissions:
   contents: read
-
+ 
 jobs:
   deploy:
     name: Deploy to Render
@@ -24,26 +24,29 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
+ 
     # MANUAL APPROVAL: the "production" environment has Required reviewers.
     # The job waits here until a reviewer clicks "Approve and deploy".
     environment:
       name: production
-      url: ${{ vars.BACKEND_URL }}
-
+      url: ${{ vars.FRONTEND_URL }}
+ 
     steps:
       - name: Show what is being deployed
         run: |
           echo "Commit: ${{ github.event.workflow_run.head_sha }}"
           echo "Message: ${{ github.event.workflow_run.head_commit.message }}"
-
-      # One Render service hosts both the Go backend and the UI,
-      # so a single deploy hook deploys everything.
-      - name: Trigger deploy on Render
+ 
+      - name: Trigger backend deploy on Render
         env:
           HOOK: ${{ secrets.RENDER_BACKEND_HOOK }}
         run: curl --fail --silent --show-error -X POST "$HOOK"
-
+ 
+      - name: Trigger frontend deploy on Render
+        env:
+          HOOK: ${{ secrets.RENDER_FRONTEND_HOOK }}
+        run: curl --fail --silent --show-error -X POST "$HOOK"
+ 
       - name: Wait for backend /health to respond
         env:
           BACKEND_URL: ${{ vars.BACKEND_URL }}
@@ -61,3 +64,4 @@ jobs:
           done
           echo "Backend did not become healthy in time."
           exit 1
+ 
