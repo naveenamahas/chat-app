@@ -29,7 +29,7 @@ jobs:
     # The job waits here until a reviewer clicks "Approve and deploy".
     environment:
       name: production
-      url: ${{ vars.FRONTEND_URL }}
+      url: ${{ vars.BACKEND_URL }}
  
     steps:
       - name: Show what is being deployed
@@ -37,15 +37,23 @@ jobs:
           echo "Commit: ${{ github.event.workflow_run.head_sha }}"
           echo "Message: ${{ github.event.workflow_run.head_commit.message }}"
  
-      - name: Trigger backend deploy on Render
+      # One Render service hosts the backend, so a single deploy hook is used.
+      - name: Trigger deploy on Render
         env:
           HOOK: ${{ secrets.RENDER_BACKEND_HOOK }}
-        run: curl --fail --silent --show-error -X POST "$HOOK"
- 
-      - name: Trigger frontend deploy on Render
-        env:
-          HOOK: ${{ secrets.RENDER_FRONTEND_HOOK }}
-        run: curl --fail --silent --show-error -X POST "$HOOK"
+        run: |
+          # Remove any accidental spaces or line breaks from the pasted secret.
+          HOOK=$(printf '%s' "$HOOK" | tr -d '[:space:]')
+          if [ -z "$HOOK" ]; then
+            echo "::error::Secret RENDER_BACKEND_HOOK is empty or missing. Add it under Settings > Environments > production."
+            exit 1
+          fi
+          case "$HOOK" in
+            https://api.render.com/deploy/*) ;;
+            *) echo "::error::RENDER_BACKEND_HOOK must start with https://api.render.com/deploy/"; exit 1 ;;
+          esac
+          curl --fail --silent --show-error -X POST "$HOOK"
+          echo "Render deploy triggered."
  
       - name: Wait for backend /health to respond
         env:
