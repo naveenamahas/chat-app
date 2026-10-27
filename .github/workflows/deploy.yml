@@ -1,0 +1,66 @@
+# CD: deploy to Render after CI passes on main AND a person approves.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Never run two deploys at the same time.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Render
+    # Only after a successful CI run caused by a push (not a pull request).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # MANUAL APPROVAL: the "production" environment has Required reviewers.
+    # The job waits here until a reviewer clicks "Approve and deploy".
+    environment:
+      name: production
+      url: ${{ vars.FRONTEND_URL }}
+
+    steps:
+      - name: Show what is being deployed
+        run: |
+          echo "Commit: ${{ github.event.workflow_run.head_sha }}"
+          echo "Message: ${{ github.event.workflow_run.head_commit.message }}"
+
+      - name: Trigger backend deploy on Render
+        env:
+          HOOK: ${{ secrets.RENDER_BACKEND_HOOK }}
+        run: curl --fail --silent --show-error -X POST "$HOOK"
+
+      - name: Trigger frontend deploy on Render
+        env:
+          HOOK: ${{ secrets.RENDER_FRONTEND_HOOK }}
+        run: curl --fail --silent --show-error -X POST "$HOOK"
+
+      - name: Wait for backend /health to respond
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          # Render free plan can take a minute or more to build and wake up.
+          sleep 30
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BACKEND_URL/health" || true)
+            echo "Attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Backend is healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Backend did not become healthy in time."
+          exit 1
