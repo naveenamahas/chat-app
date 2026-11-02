@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	go.mongodb.org/mongo-driver v1.17.4
+	go.mongodb.org/mongo-driver v1.17.10
 	golang.org/x/crypto v0.31.0
 )
 
