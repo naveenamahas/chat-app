@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -134,6 +136,32 @@ func main() {
 		log.Fatal("configure authentication:", err)
 	}
 
+	// Background jobs. ROLE=web (API only), ROLE=worker (jobs only) or all (default, one process).
+	queue, err := newJobQueue(mongoClient.Database(databaseName))
+	if err != nil {
+		log.Fatal("configure job queue:", err)
+	}
+	registerJobHandlers(queue, newMailerFromEnv())
+	auth.jobs = queue
+
+	role := os.Getenv("ROLE")
+	stop, cancelStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancelStop()
+	workersDone := make(chan struct{})
+	if role == "worker" || role == "" || role == "all" {
+		go func() {
+			defer close(workersDone)
+			queue.Run(stop, 2)
+		}()
+	} else {
+		close(workersDone)
+	}
+	if role == "worker" {
+		log.Println("Worker running (no HTTP server)")
+		<-workersDone // returns after the current jobs finish
+		return
+	}
+
 	hub := newHub(auth.messages)
 	go hub.run()
 
@@ -150,6 +178,16 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+	server := &http.Server{Addr: ":" + port, Handler: cors(mux)}
+	go func() {
+		<-stop.Done() // Ctrl+C or deploy: stop HTTP, then let running jobs finish
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
 	log.Println("Chat server running on :" + port)
-	log.Fatal(http.ListenAndServe(":"+port, cors(mux)))
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+	<-workersDone
 }
