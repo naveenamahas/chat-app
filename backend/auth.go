@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/mail"
 	"os"
@@ -33,6 +34,7 @@ type authService struct {
 	users      *mongo.Collection
 	messages   *mongo.Collection
 	signingKey []byte
+	jobs       *jobQueue // optional: background jobs (nil in tests)
 }
 
 const messageHistoryLimit int64 = 50
@@ -188,6 +190,15 @@ func (a *authService) handleSignup(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Could not create account", http.StatusInternalServerError)
 		return
+	}
+	// Slow work goes to the background queue; signup must not wait for it or fail because of it.
+	if a.jobs != nil {
+		qctx, qcancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer qcancel()
+		if err := a.jobs.Enqueue(qctx, "welcome_email", "welcome:"+user.Email,
+			map[string]string{"username": user.Username, "email": user.Email}); err != nil {
+			log.Println("enqueue welcome email:", err)
+		}
 	}
 	a.writeAuthResponse(w, user.Username)
 }
